@@ -1,0 +1,360 @@
+@webapi_HostAddress = http://localhost:5017
+
+###############################################################################
+# PADRÃO 1: IDEMPOTENCY KEY
+###############################################################################
+
+### 1.1 - Criar pedido com chave de idempotência (PRIMEIRA VEZ)
+POST {{webapi_HostAddress}}/api/idempotencykey/order
+Content-Type: application/json
+
+{
+  "idempotencyKey": "pedido-12345-abc",
+  "description": "Pedido de teste - primeira tentativa"
+}
+
+### 1.2 - Criar pedido com a MESMA chave (CACHE - resultado idêntico)
+# Execute este teste logo após o anterior
+# Resultado: Receberá exatamente o mesmo ProcessId e resposta em cache
+POST {{webapi_HostAddress}}/api/idempotencykey/order
+Content-Type: application/json
+
+{
+  "idempotencyKey": "pedido-12345-abc",
+  "description": "Pedido de teste - segunda tentativa (mesma chave)"
+}
+
+### 1.3 - Criar pedido com chave DIFERENTE (NOVA OPERAÇÃO)
+POST {{webapi_HostAddress}}/api/idempotencykey/order
+Content-Type: application/json
+
+{
+  "idempotencyKey": "pedido-67890-xyz",
+  "description": "Pedido de teste - chave diferente"
+}
+
+### 1.4 - Processar pagamento com idempotency key (PRIMEIRA VEZ)
+POST {{webapi_HostAddress}}/api/idempotencykey/payment
+Content-Type: application/json
+
+{
+  "idempotencyKey": "pagamento-001-abc",
+  "description": "Pagamento R$ 150,00 - primeira tentativa",
+  "amount": 150.00
+}
+
+### 1.5 - Processar pagamento com a MESMA chave (EVITA DUPLO PAGAMENTO!)
+# Este é o caso de uso mais importante!
+# Se houver retry de rede ou duplo clique, o pagamento NÃO será processado duas vezes
+POST {{webapi_HostAddress}}/api/idempotencykey/payment
+Content-Type: application/json
+
+{
+  "idempotencyKey": "pagamento-001-abc",
+  "description": "Pagamento R$ 150,00 - retry (mesma chave)",
+  "amount": 150.00
+}
+
+### 1.6 - Teste SEM chave de idempotência (ERRO)
+POST {{webapi_HostAddress}}/api/idempotencykey/order
+Content-Type: application/json
+
+{
+  "description": "Pedido sem idempotency key - deve falhar"
+}
+
+###############################################################################
+# PADRÃO 2: IDEMPOTÊNCIA NATURAL
+###############################################################################
+
+### 2.1 - Listar todos os perfis
+GET {{webapi_HostAddress}}/api/naturalidempotency/profiles
+Accept: application/json
+
+### 2.2 - POST - Criar perfil (NÃO É IDEMPOTENTE)
+# Execute este teste 3 vezes e verá 3 perfis diferentes sendo criados
+POST {{webapi_HostAddress}}/api/naturalidempotency/profiles
+Content-Type: application/json
+
+{
+  "name": "João Silva",
+  "email": "joao@example.com",
+  "bio": "Desenvolvedor Backend"
+}
+
+### 2.3 - PUT - Atualizar perfil (IDEMPOTENTE!)
+# Execute este teste múltiplas vezes - o resultado será sempre o mesmo
+PUT {{webapi_HostAddress}}/api/naturalidempotency/profiles/user-001
+Content-Type: application/json
+
+{
+  "name": "Maria Santos",
+  "email": "maria@example.com",
+  "bio": "Engenheira de Software"
+}
+
+### 2.4 - PUT - Atualizar o mesmo perfil novamente (MESMO RESULTADO)
+# Mesma operação, mesmo estado final - isso é idempotência natural!
+PUT {{webapi_HostAddress}}/api/naturalidempotency/profiles/user-001
+Content-Type: application/json
+
+{
+  "name": "Maria Santos",
+  "email": "maria@example.com",
+  "bio": "Engenheira de Software"
+}
+
+### 2.5 - GET - Verificar o perfil atualizado
+GET {{webapi_HostAddress}}/api/naturalidempotency/profiles/user-001
+Accept: application/json
+
+### 2.6 - DELETE - Deletar perfil (IDEMPOTENTE!)
+# Execute este teste múltiplas vezes
+# Resultado: Sempre retorna sucesso (204), mesmo que já esteja deletado
+DELETE {{webapi_HostAddress}}/api/naturalidempotency/profiles/user-001
+
+### 2.7 - DELETE - Deletar o mesmo perfil novamente (AINDA FUNCIONA!)
+# Deletar algo já deletado não muda nada - idempotência natural!
+DELETE {{webapi_HostAddress}}/api/naturalidempotency/profiles/user-001
+
+### 2.8 - Listar perfis novamente (verificar o estado)
+GET {{webapi_HostAddress}}/api/naturalidempotency/profiles
+Accept: application/json
+
+###############################################################################
+# PADRÃO 3: VERSION-BASED / OPTIMISTIC LOCKING
+###############################################################################
+
+### 3.1 - Listar todos os recursos
+GET {{webapi_HostAddress}}/api/versionbased/resources
+Accept: application/json
+
+### 3.2 - Obter recurso específico (ver versão atual)
+GET {{webapi_HostAddress}}/api/versionbased/resources/config-1
+Accept: application/json
+
+### 3.3 - Atualizar recurso (PRIMEIRA VEZ - versão 0 → 1)
+PUT {{webapi_HostAddress}}/api/versionbased/resources/config-1
+Content-Type: application/json
+
+{
+  "name": "Database Config",
+  "value": "server=localhost;port=5432",
+  "expectedVersion": 0
+}
+
+### 3.4 - Atualizar recurso (SUCESSO - versão 1 → 2)
+PUT {{webapi_HostAddress}}/api/versionbased/resources/config-1
+Content-Type: application/json
+
+{
+  "name": "Database Config",
+  "value": "server=prod-db;port=5432",
+  "expectedVersion": 1
+}
+
+### 3.5 - Tentar atualizar com versão ANTIGA (CONFLITO!)
+# Este teste deve falhar porque a versão já mudou para 2
+PUT {{webapi_HostAddress}}/api/versionbased/resources/config-1
+Content-Type: application/json
+
+{
+  "name": "Database Config",
+  "value": "server=old-db;port=5432",
+  "expectedVersion": 1
+}
+
+### 3.6 - Obter versão atual novamente (verificar)
+GET {{webapi_HostAddress}}/api/versionbased/resources/config-1
+Accept: application/json
+
+### 3.7 - Atualizar com versão CORRETA (SUCESSO)
+PUT {{webapi_HostAddress}}/api/versionbased/resources/config-1
+Content-Type: application/json
+
+{
+  "name": "Database Config",
+  "value": "server=new-prod-db;port=5432",
+  "expectedVersion": 2
+}
+
+###############################################################################
+# PADRÃO 4: TOKEN-BASED IDEMPOTENCY
+###############################################################################
+
+### 4.1 - Gerar token de idempotência (PASSO 1)
+# Copie o token do response para usar nos próximos testes
+POST {{webapi_HostAddress}}/api/tokenbased/token/generate
+Content-Type: application/json
+
+### 4.2 - Processar pagamento usando o token (PASSO 2 - SUCESSO)
+# Cole aqui o token obtido no teste anterior
+POST {{webapi_HostAddress}}/api/tokenbased/payment
+Content-Type: application/json
+
+{
+  "token": "COLE_O_TOKEN_AQUI",
+  "amount": 250.00,
+  "description": "Pagamento de produto XYZ"
+}
+
+### 4.4 - Tentar usar o MESMO token novamente (FALHA - já foi consumido!)
+POST {{webapi_HostAddress}}/api/tokenbased/payment
+Content-Type: application/json
+
+{
+  "token": "MESMO_TOKEN_ANTERIOR",
+  "amount": 250.00,
+  "description": "Tentativa de reutilizar token"
+}
+
+### 4.5 - Gerar NOVO token para nova operação
+POST {{webapi_HostAddress}}/api/tokenbased/token/generate
+Content-Type: application/json
+
+### 4.6 - Processar pedido com novo token (SUCESSO)
+POST {{webapi_HostAddress}}/api/tokenbased/order
+Content-Type: application/json
+
+{
+  "token": "NOVO_TOKEN_AQUI",
+  "description": "Pedido de produto ABC",
+  "amount": 99.90
+}
+
+###############################################################################
+# PADRÃO 5: TIMESTAMP-BASED DEDUPLICATION
+###############################################################################
+
+### 5.1 - Listar todas as operações timestamp-based
+GET {{webapi_HostAddress}}/api/timestampbased/operations
+Accept: application/json
+
+### 5.2 - Atualizar sensor com timestamp ATUAL (ACEITO)
+POST {{webapi_HostAddress}}/api/timestampbased/sensor
+Content-Type: application/json
+
+{
+  "resourceId": "sensor-temp-001",
+  "value": "25.5°C",
+  "timestamp": "{{$datetime iso8601}}"
+}
+
+### 5.3 - Tentar atualizar com timestamp ANTIGO (REJEITADO)
+# Timestamp 1 hora no passado - será rejeitado
+POST {{webapi_HostAddress}}/api/timestampbased/sensor
+Content-Type: application/json
+
+{
+  "resourceId": "sensor-temp-001",
+  "value": "26.0°C",
+  "timestamp": "2024-01-01T10:00:00Z"
+}
+
+### 5.4 - Atualizar com timestamp FUTURO (ACEITO - mas é um problema!)
+# Timestamp no futuro será aceito, mas pode causar problemas
+POST {{webapi_HostAddress}}/api/timestampbased/sensor
+Content-Type: application/json
+
+{
+  "resourceId": "sensor-temp-001",
+  "value": "27.0°C",
+  "timestamp": "2030-01-01T12:00:00Z"
+}
+
+### 5.5 - Obter operação específica
+GET {{webapi_HostAddress}}/api/timestampbased/operations/sensor-temp-001
+Accept: application/json
+
+### 5.6 - Cenário realista: Múltiplos sensores
+POST {{webapi_HostAddress}}/api/timestampbased/sensor
+Content-Type: application/json
+
+{
+  "resourceId": "sensor-humidity-001",
+  "value": "65%",
+  "timestamp": "{{$datetime iso8601}}"
+}
+
+###############################################################################
+# PADRÃO 6: CONTENT-BASED DEDUPLICATION
+###############################################################################
+
+### 6.1 - Listar todas as operações processadas
+GET {{webapi_HostAddress}}/api/contentbased/operations
+Accept: application/json
+
+### 6.2 - Processar evento (PRIMEIRA VEZ - aceito)
+POST {{webapi_HostAddress}}/api/contentbased/event
+Content-Type: application/json
+
+{
+  "eventType": "UserCreated",
+  "userId": "user-12345",
+  "data": "João Silva - joao@example.com"
+}
+
+### 6.3 - Processar EXATAMENTE o mesmo evento (DUPLICATA - rejeitado!)
+# Hash será idêntico, operação rejeitada
+POST {{webapi_HostAddress}}/api/contentbased/event
+Content-Type: application/json
+
+{
+  "eventType": "UserCreated",
+  "userId": "user-12345",
+  "data": "João Silva - joao@example.com"
+}
+
+### 6.4 - Processar evento com 1 caractere diferente (ACEITO - hash diferente)
+# Mudança mínima = hash completamente diferente
+POST {{webapi_HostAddress}}/api/contentbased/event
+Content-Type: application/json
+
+{
+  "eventType": "UserCreated",
+  "userId": "user-12345",
+  "data": "João Silva - joao@example.com.br"
+}
+
+### 6.5 - Calcular hash de conteúdo (endpoint utilitário)
+POST {{webapi_HostAddress}}/api/contentbased/compute-hash
+Content-Type: application/json
+
+{
+  "eventType": "OrderPlaced",
+  "orderId": "order-001",
+  "amount": 150.00
+}
+
+###############################################################################
+# MESSAGE QUEUE / MENSAGERIA
+###############################################################################
+
+### 7.1 - Status do Processamento
+GET {{webapi_HostAddress}}/api/messagequeue/processing-history
+Accept: application/json
+
+### 7.2 - Publicar evento (Producer - PRIMEIRA VEZ)
+POST {{webapi_HostAddress}}/api/messagequeue/publish
+Content-Type: application/json
+
+{
+  "eventType": "UserRegistered",
+  "payload": "{\"userId\":\"user-001\",\"name\":\"Carlos Silva\",\"email\":\"carlos@example.com\"}"
+}
+
+### 7.3 - Publicar o MESMO evento novamente (DUPLICATA)
+# Simula retry de rede ou mensagem duplicada
+# Consumer detectará e ignorará
+POST {{webapi_HostAddress}}/api/messagequeue/publish
+Content-Type: application/json
+
+{
+  "eventType": "UserRegistered",
+  "payload": "{\"userId\":\"user-001\",\"name\":\"Carlos Silva\",\"email\":\"carlos@example.com\"}"
+}
+
+### 7.4 - Ver histórico de processamento
+# Você verá que o Consumer detectou a duplicata
+GET {{webapi_HostAddress}}/api/messagequeue/processing-history
+Accept: application/json

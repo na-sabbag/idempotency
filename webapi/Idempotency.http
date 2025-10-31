@@ -1,0 +1,267 @@
+### Coleção de Requisições - API de Idempotência
+### Use esta coleção no VS Code com a extensão REST Client
+### Ou importe no Postman/Insomnia
+
+@baseUrl = https://localhost:5001
+@contentType = application/json
+
+###############################################################################
+### 1. IDEMPOTENCY KEY - Chave de Idempotência
+###############################################################################
+
+### 1.1. Criar pedido com chave (primeira vez - será processado)
+POST {{baseUrl}}/api/idempotencykey/order
+Content-Type: {{contentType}}
+
+{
+  "idempotencyKey": "pedido-123-456-789",
+  "data": "Pedido de exemplo - Pizza Grande"
+}
+
+### 1.2. Repetir pedido com MESMA chave (retorna do cache)
+POST {{baseUrl}}/api/idempotencykey/order
+Content-Type: {{contentType}}
+
+{
+  "idempotencyKey": "pedido-123-456-789",
+  "data": "Pedido de exemplo - Pizza Grande"
+}
+
+### 1.3. Processar pagamento
+POST {{baseUrl}}/api/idempotencykey/payment
+Content-Type: {{contentType}}
+
+{
+  "idempotencyKey": "pagamento-001-abc",
+  "data": "Pagamento cartão"
+}
+
+###############################################################################
+### 2. NATURAL IDEMPOTENCY - PUT e DELETE
+###############################################################################
+
+### 2.1. Listar todos os perfis
+GET {{baseUrl}}/api/naturalidempotency/profiles
+
+### 2.2. Obter perfil específico
+GET {{baseUrl}}/api/naturalidempotency/profiles/user-1
+
+### 2.3. PUT - Atualizar perfil (IDEMPOTENTE)
+PUT {{baseUrl}}/api/naturalidempotency/profiles/user-1
+Content-Type: {{contentType}}
+
+{
+  "name": "João Silva Atualizado",
+  "email": "joao.novo@example.com",
+  "bio": "Desenvolvedor Senior"
+}
+
+### 2.4. Repetir PUT com mesmos dados (mesmo resultado)
+PUT {{baseUrl}}/api/naturalidempotency/profiles/user-1
+Content-Type: {{contentType}}
+
+{
+  "name": "João Silva Atualizado",
+  "email": "joao.novo@example.com",
+  "bio": "Desenvolvedor Senior"
+}
+
+### 2.5. POST - Criar perfil (NÃO IDEMPOTENTE - cria novo cada vez)
+POST {{baseUrl}}/api/naturalidempotency/profiles
+Content-Type: {{contentType}}
+
+{
+  "name": "Maria Santos",
+  "email": "maria@example.com",
+  "bio": "Designer"
+}
+
+### 2.6. DELETE - Deletar perfil (IDEMPOTENTE)
+DELETE {{baseUrl}}/api/naturalidempotency/profiles/user-1
+
+### 2.7. Repetir DELETE (ainda retorna sucesso)
+DELETE {{baseUrl}}/api/naturalidempotency/profiles/user-1
+
+###############################################################################
+### 3. VERSION-BASED - Optimistic Locking
+###############################################################################
+
+### 3.1. Listar todos os recursos
+GET {{baseUrl}}/api/versionbased/resources
+
+### 3.2. Obter recurso específico (note a versão)
+GET {{baseUrl}}/api/versionbased/resources/config-1
+
+### 3.3. Atualizar com versão correta (SUCESSO)
+PUT {{baseUrl}}/api/versionbased/resources/config-1
+Content-Type: {{contentType}}
+
+{
+  "name": "AppTimeout",
+  "value": "60",
+  "expectedVersion": 1
+}
+
+### 3.4. Tentar atualizar com versão antiga (CONFLITO)
+PUT {{baseUrl}}/api/versionbased/resources/config-1
+Content-Type: {{contentType}}
+
+{
+  "name": "AppTimeout",
+  "value": "90",
+  "expectedVersion": 1
+}
+
+### 3.5. Demo de conflito
+POST {{baseUrl}}/api/versionbased/resources/config-test/simulate-conflict
+
+###############################################################################
+### 4. TOKEN-BASED - Token Único
+###############################################################################
+
+### 4.1. Gerar token
+POST {{baseUrl}}/api/tokenbased/token/generate
+
+### 4.2. Processar pagamento com token (COPIE O TOKEN DO PASSO ANTERIOR!)
+POST {{baseUrl}}/api/tokenbased/payment
+Content-Type: {{contentType}}
+
+{
+  "token": "COLE_O_TOKEN_AQUI",
+  "amount": 250.50,
+  "description": "Pagamento de teste"
+}
+
+### 4.3. Tentar usar o mesmo token novamente (ERRO - já usado)
+POST {{baseUrl}}/api/tokenbased/payment
+Content-Type: {{contentType}}
+
+{
+  "token": "COLE_O_MESMO_TOKEN_AQUI",
+  "amount": 250.50,
+  "description": "Pagamento de teste"
+}
+
+### 4.4. Ver demo
+GET {{baseUrl}}/api/tokenbased/demo
+
+###############################################################################
+### 5. TIMESTAMP-BASED - Desduplicação por Timestamp
+###############################################################################
+
+### 5.1. Listar operações
+GET {{baseUrl}}/api/timestampbased/operations
+
+### 5.2. Obter operação específica
+GET {{baseUrl}}/api/timestampbased/operations/sensor-1
+
+### 5.3. Atualizar sensor com timestamp atual (ACEITO)
+POST {{baseUrl}}/api/timestampbased/sensor
+Content-Type: {{contentType}}
+
+{
+  "resourceId": "sensor-1",
+  "value": "27.5",
+  "timestamp": "2025-10-30T12:00:00Z"
+}
+
+### 5.4. Atualizar com timestamp ANTIGO (REJEITADO)
+POST {{baseUrl}}/api/timestampbased/sensor
+Content-Type: {{contentType}}
+
+{
+  "resourceId": "sensor-1",
+  "value": "28.0",
+  "timestamp": "2024-01-01T00:00:00Z"
+}
+
+### 5.5. Demo Clock Skew
+POST {{baseUrl}}/api/timestampbased/demo/clock-skew?resourceId=demo-sensor
+
+###############################################################################
+### 6. CONTENT-BASED - Hash do Conteúdo
+###############################################################################
+
+### 6.1. Listar operações
+GET {{baseUrl}}/api/contentbased/operations
+
+### 6.2. Processar evento (primeira vez - SUCESSO)
+POST {{baseUrl}}/api/contentbased/event
+Content-Type: {{contentType}}
+
+{
+  "eventType": "UserCreated",
+  "userId": "user-123",
+  "data": "João Silva"
+}
+
+### 6.3. Enviar EXATAMENTE o mesmo evento (DUPLICATA DETECTADA)
+POST {{baseUrl}}/api/contentbased/event
+Content-Type: {{contentType}}
+
+{
+  "eventType": "UserCreated",
+  "userId": "user-123",
+  "data": "João Silva"
+}
+
+### 6.4. Mudar 1 caractere (hash diferente - PROCESSADO)
+POST {{baseUrl}}/api/contentbased/event
+Content-Type: {{contentType}}
+
+{
+  "eventType": "UserCreated",
+  "userId": "user-124",
+  "data": "João Silva"
+}
+
+### 6.5. Calcular hash de um conteúdo
+POST {{baseUrl}}/api/contentbased/compute-hash
+Content-Type: {{contentType}}
+
+{
+  "teste": "conteúdo qualquer",
+  "numero": 123
+}
+
+### 6.6. Demo de sensibilidade do hash
+GET {{baseUrl}}/api/contentbased/demo/hash-sensitivity
+
+###############################################################################
+### 7. MESSAGE QUEUE - Mensageria com Consumer
+###############################################################################
+
+### 7.1. Ver status do Consumer
+GET {{baseUrl}}/api/messagequeue/consumer/status
+
+### 7.2. Publicar evento (Producer)
+POST {{baseUrl}}/api/messagequeue/publish
+Content-Type: {{contentType}}
+
+{
+  "eventType": "OrderCreated",
+  "payload": "{\"orderId\":\"order-123\",\"amount\":500}"
+}
+
+### 7.3. Publicar o MESMO evento (duplicata)
+POST {{baseUrl}}/api/messagequeue/publish
+Content-Type: {{contentType}}
+
+{
+  "eventType": "OrderCreated",
+  "payload": "{\"orderId\":\"order-123\",\"amount\":500}"
+}
+
+### 7.4. Ver histórico de processamento
+GET {{baseUrl}}/api/messagequeue/processing-history
+
+### 7.5. Publicar batch com duplicatas (demo)
+POST {{baseUrl}}/api/messagequeue/publish-batch
+
+### 7.6. Demo completo (3 eventos, 2 duplicatas)
+POST {{baseUrl}}/api/messagequeue/demo/full-flow
+
+###############################################################################
+### FIM
+###############################################################################
+
